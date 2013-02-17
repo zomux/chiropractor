@@ -3,14 +3,13 @@ Cube Pruner , you knows
 """
 from abraham.setting import setting
 
-from gentile.hypothesis import GentileHypothesis
+from chiropractor.hypothesis import Hypothesis
 from gentile.model import GentileModel
-from gentile.linearlimits import linearlimits
 
 from abraham.logger import log_error,log
 
 
-class GentileCubePruner:
+class CubePruner:
   """
   Class for running cube pruning for zion
   prune all hypothesises in one cube
@@ -19,7 +18,9 @@ class GentileCubePruner:
   - size should be count of sites + 1
   - got first dimension for rule dimension
   """
-  joint = None
+  area = None
+  sourceString = None
+  subTreeDistance = None
   model = None
   """@type: GentileModel"""
   # [ (fragment,sites,target,costs) , ... ]
@@ -41,8 +42,9 @@ class GentileCubePruner:
   positionExpanded = None
   layerLimits = None
   layetLimitsLength = None
+
   
-  def __init__(self,model,joint,rules,sitesInvolved,stackHyps):
+  def __init__(self,model, area, sourceString, subTreeDistance, rules, sitesInvolved, stackHyps):
     """
     Initial the cube pruner
     @type model: GentileModel
@@ -50,7 +52,9 @@ class GentileCubePruner:
     @type sitesInvolved: list of number
     @type stackHyps: dict of list of GentileHypothesis
     """
-    self.joint = joint
+    self.area = area
+    self.sourceString = sourceString
+    self.subTreeDistance = subTreeDistance
     self.model = model
     self.rules = rules
     self.stackHypothesis = stackHyps
@@ -84,7 +88,7 @@ class GentileCubePruner:
       if site in sitesForRule:
           # Just get hyp in normal hyp list.
           stackBasicHyps[site] = self.stackHypothesis[site][idxHyp]
-    hyp = GentileHypothesis(self.model, self.joint, rule, stackBasicHyps)
+    hyp = Hypothesis(self.model, self.area, self.sourceString, rule, stackBasicHyps, self.subTreeDistance)
     return hyp
 
   def pastePosition(self,position):
@@ -197,27 +201,3 @@ class GentileCubePruner:
 
     stackOutput.sort( key=lambda x:x.score , reverse=True )
     return stackOutput
-
-def separately_prune(model,rules,stackHyps):
-  """
-  Prune separately by support hypothesises.
-  """
-  # sites -> rules
-  mapSupportRules = {}
-  beamSize = setting.size_beam
-  # Build map.
-  for rule in rules:
-    sites = rule[1]
-    sites = tuple(sorted(sites))
-    mapSupportRules.setdefault(sites, []).append(rule)
-  # Prune separately.
-  stack = []
-  for sites in mapSupportRules:
-    correspondingRules = mapSupportRules[sites]
-    pruner = GentileCubePruner(model, node, correspondingRules, sites, stackHyps)
-    hyps = pruner.prune()
-    hyps = hyps[:beamSize]
-    stack.extend(hyps)
-  stack.sort(key=lambda x:x.score, reverse=True)
-  stack = stack[:beamSize]
-  return stack

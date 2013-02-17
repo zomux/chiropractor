@@ -696,10 +696,12 @@ class SenseTree:
     if not node:
       self.maxLevel = 0
       self.mapLevelNodes = {}
+      self.mapNodeLevel = {}
       node = self.tree.root
     if level > self.maxLevel:
       self.maxLevel = level
     self.mapLevelNodes.setdefault(level, []).append(node)
+    self.mapNodeLevel[node] = level
     for childNode in self.tree.children(node):
       self.buildLevelMap(childNode, level + 1)
 

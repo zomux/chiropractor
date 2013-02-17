@@ -23,7 +23,7 @@ from gentile.ruletable import GentileRuleTable
 from chiropractor.rulefetcher import RuleFetcher
 from gentile.hypothesis import GentileHypothesis
 from gentile.model import GentileModel
-from chiropractor.cubepruner import GentileCubePruner, separately_prune
+from chiropractor.cubepruner import CubePruner
 from chiropractor.reconstructor import Reconstructor
 from gentile.sense import SenseTree
 import itertools
@@ -78,7 +78,7 @@ class ChiropracticDecoder:
         hyps = self.model.sortHypothesises(hyps)
         stack_lex[node] = hyps
     return stack_lex
-  
+
   def translateNBestOLD(self,data_tree,data_dep):
     """
     Translate and return a N-best list
@@ -172,10 +172,11 @@ class ChiropracticDecoder:
     tree.separateContiniousNonTerminals()
     tree.buildLevelMap()
     # Prepare for chiropractic process.
-    treeForest = [tree]
-    resultStack = []
-    for tree in treeForest:
-      resultStack.append(self.chiropracticTranslation(tree))
+    # treeForest = [tree]
+    # resultStack = []
+    # for tree in treeForest:
+    #   resultStack.append(self.chiropracticTranslation(tree))
+    return self.chiropracticTranslation(tree)
 
   def buildPhraseBorders(self, sense):
     """
@@ -318,6 +319,7 @@ class ChiropracticDecoder:
     phraseCoverages = self.buildPhraseCoverages(sense)
     phraseClosedTokens = self.buildPhraseClosedTokens(sense, phraseBorders)
     intrinsicRuleCoverages = self.buildIntrinsicRuleCoverageMap(sense, phraseCoverages)
+    intrinsicCoverageMap = self.buildIntrinsicCoverageMap(sense, phraseCoverages)
     # phraseHeadWords = sense.mapNodeToMainToken
     # For each area from short to long do forest decoding
     areas = set()
@@ -334,7 +336,8 @@ class ChiropracticDecoder:
     for area in areas:
       self.disableInpossibleCells(hypStacks, area, maxTokenId)
       self.buildHypothesisesForArea(sense, hypStacks, area, areaTags, phraseBorders, phraseDerivations,
-                                    phraseCoverages, phraseClosedTokens, intrinsicRuleCoverages)
+                                    intrinsicCoverageMap, phraseClosedTokens, intrinsicRuleCoverages)
+    return hypStacks[fullArea][:setting.nbest]
 
   def disableInpossibleCells(self, hypStacks, area, maxTokenId):
     """
@@ -560,7 +563,71 @@ class ChiropracticDecoder:
         stringParts.append(sense.tokens[part - 1][1])
     return " ".join(stringParts)
 
-  def buildHypothesisesForArea(self, sense, hypStacks, area, areaTags, phraseBorders, phraseDerivations, phraseCoverages, phraseClosedTokens, intrinsicRuleCoverages):
+
+  def buildIntrinsicCoverageMap(self, sense, phraseCoverages):
+    """
+
+    @param sense:
+    @param phraseCoverages:
+    @return:
+    """
+    intrinsicCoverageMap = {}
+    for node in sense.tree.nodes:
+      if node not in phraseCoverages:
+        continue
+      if node not in intrinsicCoverageMap:
+        intrinsicCoverageMap[phraseCoverages[node]] = []
+      childNodes = sense.tree.children(node)
+      for childNode in childNodes:
+        if childNode not in phraseCoverages:
+          continue
+        intrinsicCoverageMap[phraseCoverages[node]].append(phraseCoverages[childNode])
+    return intrinsicCoverageMap
+
+  def getSubTreeDistance(self, intrinsicCoverageMap, area, dependentAreas):
+    """
+    Build sub tree distance for given source.
+    Currently, this implementation uses coverage matching.
+
+    @param intrinsicCoverageMap:
+    @param area:
+    @param dependentAreas:
+    @return:
+    """
+    branches = len(dependentAreas)
+    matchedBranches = 0
+    if area in intrinsicCoverageMap:
+      intrinsicDependentCoverages = intrinsicCoverageMap[area]
+      for dependentArea in dependentAreas:
+        if dependentArea in intrinsicDependentCoverages:
+          matchedBranches += 1
+    return branches, matchedBranches
+
+  def taggingFunction(self, sense, phraseGroup):
+    """
+    Generate static tag for given phrase group.
+
+    @param sense:
+    @type sense: SenseTree
+    @param phraseDerivations:
+    @param phraseGroup:
+    @return:
+    """
+    headPhrase = phraseGroup[0]
+    minLevel = 999
+    for iPhrase in range(len(phraseGroup) - 1, -1, -1):
+      phrase = phraseGroup[iPhrase]
+      if phrase not in sense.mapNodeLevel:
+        continue
+      level = sense.mapNodeLevel[phrase]
+      if level <= minLevel:
+        minLevel = level
+        headPhrase = phrase
+    mainToken = sense.mapNodeToMainToken[headPhrase]
+    return sense.tokens[mainToken - 1][0]
+
+  def buildHypothesisesForArea(self, sense, hypStacks, area, areaTags, phraseBorders, phraseDerivations,
+                               intrinsicCoverageMap, phraseClosedTokens, intrinsicRuleCoverages):
     """
     Build Hypothesis stacks in given area.
 
@@ -582,6 +649,7 @@ class ChiropracticDecoder:
         phraseGroup = basePhrases[beginPosition : beginPosition + phraseCount]
         area = (phraseBorders[phraseGroup[0]][0], phraseBorders[phraseGroup[-1]][1])
         sourcesWithPhrase = self.generateSourcesWithPhrase(phraseGroup, phraseClosedTokens, phraseBorders)
+        finalHyps = []
         # Fetch rules and decode
         # For all sources try exactly matching
         for source, phrases in sourcesWithPhrase:
@@ -601,23 +669,27 @@ class ChiropracticDecoder:
           # Fetch exactly matched rule
           exactlyMatchedRules = self.rulefetcher.findRulesBySourceString(sourceString, dependentAreas)
           hyps = None
+          # If this source is an intrinsic source
+          # then try to reconstruct or build depraved rules
+          if not exactlyMatchedRules and \
+              (sourceString not in intrinsicRuleCoverages or intrinsicRuleCoverages[sourceString] != area):
+            continue
+          subTreeDistance = self.getSubTreeDistance(intrinsicCoverageMap, area, dependentAreas)
           if not exactlyMatchedRules:
-            # If this source is an intrinsic source
-            # then try to reconstruct or build depraved rules
-            if sourceString not in intrinsicRuleCoverages or intrinsicRuleCoverages[sourceString] != area:
-              continue
+
             # In this case, here we got a intrinsic rule covers same area in the parse tree.
             # We should not allow this rule to be kicked off, so use reconstruction or depraved glue rule.
-            if len(source) > 12:
-              exactlyMatchedRules = self.rulefetcher.buildDepravedMatchingRules(sense, source)
-          if not exactlyMatchedRules:
+            depravedReconstruction = len(source) > 12
             # Need reconstruction
             reconstructor = Reconstructor(self.ruletable, self.model, sense, hypStacks,
-                                          source, areaTags, dependentAreas)
+                                          source, areaTags, dependentAreas, depravedReconstruction)
             hyps = reconstructor.parse()
           else:
             # Got some rules, then using normal cube pruning to get hypothesis
-            hyps = separately_prune(self.model, exactlyMatchedRules, hypStacks)
-          if hyps:
-            hypStacks[area] = hyps
-            areaTags[area] = None
+            pruner = CubePruner(self.model, area, sourceString, subTreeDistance, exactlyMatchedRules,
+                                dependentAreas, hypStacks)
+            hyps = pruner.prune()
+          finalHyps.extend(hyps)
+        if finalHyps:
+          hypStacks[area] = finalHyps[setting.size_beam]
+          areaTags[area] = self.taggingFunction(sense, phraseGroup)

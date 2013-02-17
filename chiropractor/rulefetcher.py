@@ -30,6 +30,7 @@ for terminal tokens.
 """
 import os,sys
 from gentile.ruletable import GentileRuleTable
+from chiropractor.hypothesis import Hypothesis
 from abraham.setting import setting
 from gentile.reconstructor import Reconstructor
 import math
@@ -66,45 +67,3 @@ class RuleFetcher:
     """
     rulesFound = self.ruletable.findBySource(sourceString, dependentAreas, None)
     return rulesFound
-
-  def buildDepravedMatchingRules(self, sense, source):
-    """
-    As the last chance we have, just build a pseudo rule,
-    in a dirty way then break all tokens of this node to child nodes.
-    Those nodes will surely be translated by lexical rules.
-    But if given node is already a lexical node, then we need give a
-    pseudo lexical translation rule.
-    """
-    tokens = list(self.tree.node(nodeId))
-    assert len(tokens) > 0
-    # Build lexical pseudo rule.
-    if len(tokens) == 1:
-      target = self.sense.tokens[tokens[0]-1][1]
-      pseudoRule = self.ruletable.buildPsuedoRule(target, [])
-      return [pseudoRule]
-    # Build normal pseudo rule.
-    terminalPositions = [n for n in range(len(tokens)) if tokens[n] > 0]
-    rules = []
-    mapPositionToNewNode = {}
-
-    # Create new nodes for terminal tokens.
-    for pos in terminalPositions:
-      tokenId = tokens[pos]
-      newNodeId = max(self.tree.nodes) + 1
-      mapPositionToNewNode[pos] = newNodeId
-      self.tree.nodes[newNodeId] = [tokenId]
-      self.tree.mapParent[newNodeId] = nodeId
-      self.tree.mapChildren.setdefault(nodeId, []).append(newNodeId)
-      self.sense.mapNodeToMainToken[newNodeId] = tokenId
-      self.tree.nodes[nodeId][pos] = -newNodeId
-    # Build sites for these rules
-    sites = []
-    for pos in range(len(tokens)):
-      if pos in mapPositionToNewNode:
-        sites.append(mapPositionToNewNode[pos])
-      elif tokens[pos] < 0:
-        sites.append(-tokens[pos])
-    # Get pseudo rule.
-    pseudoRule = self.ruletable.buildPsuedoRule(None, sites)
-    self.recordDependentSitesForNode(nodeId, sites)
-    return [pseudoRule]

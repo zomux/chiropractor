@@ -25,7 +25,7 @@ from gentile.model import GentileModel
 from gentile.ruletable import GentileRuleTable
 from gentile.model import GentileModel
 from gentile.simplepruner import SimpleCubePruner
-from gentile.hypothesis import GentileHypothesis
+from chiropractor.hypothesis import Hypothesis
 from gentile.ruletable import PSEUDO_COSTS
 
 GLUECOST = PSEUDO_COSTS
@@ -45,12 +45,14 @@ class Reconstructor:
   mapSpanTag = None
   smode = None
   dependentAreas = None
+  depraved = None
 
 
-  def __init__(self, ruletable, model, sense, hypStacks, source, areaTags, dependentAreas):
+  def __init__(self, ruletable, model, sense, hypStacks, source, areaTags, dependentAreas, depraved=False):
     """
     Init.
     """
+    self.depraved = depraved
     self.source = source
     self.areaTags = areaTags
     self.dependentAreas = dependentAreas
@@ -343,34 +345,56 @@ class Reconstructor:
       nHyp += 1
     return stack
 
-  def convertLatticeStackToHyps(self, node, stack):
+  def convertLatticeStackToHyps(self, stack):
     """
     Convert a lattice stack to hyps.
     """
     hyps = []
     for item in stack:
       translation, _, costs, score, supportDict = item
-      hyp = GentileHypothesis(self.model, node, None, None)
+      # TODO: save area sourceString, subTreeDistance
+      area, sourceString = None, None
+      hyp = Hypothesis(self.model, area, sourceString, None, None, (0, 0))
       hyp.sites = supportDict.keys()
       hyp.translation = translation
       hyp.translationTokens = translation.split(" ")
       hyp.costs = costs[:]
       # Build target and hypStack.
       target = translation
-      stackHypsSelected = {}
-      for linkedNode in supportDict:
-        linkedHyp = self.hypStacks[linkedNode][supportDict[linkedNode]]
-        stackHypsSelected[linkedNode] = linkedHyp
-        subtranslation = linkedHyp.translation
-        target = target.replace(subtranslation, "<<%d>>" % linkedNode)
-      hyp.target = target
-      hyp.stackHypsSelected = stackHypsSelected
+      # stackHypsSelected = {}
+      # for linkedNode in supportDict:
+      #   linkedHyp = self.hypStacks[linkedNode][supportDict[linkedNode]]
+      #   stackHypsSelected[linkedNode] = linkedHyp
+      #   subtranslation = linkedHyp.translation
+      #   target = target.replace(subtranslation, "<<%d>>" % linkedNode)
+      # hyp.target = target
+      # hyp.stackHypsSelected = stackHypsSelected
       # Build score.
       hyp.buildScore()
       hyps.append(hyp)
     return hyps
 
+  def depravedParsing(self):
+    """
+    Parse in depraved fashion.
+    @return:
+    """
+    sites = []
+    # Prepare base hypothesises
+    for iPart in range(len(self.source)):
+      part = self.source[part]
+      if isinstance(part, tuple):
+        self.mapLattice[(iPart, 1)] = self.convertHypsToLatticeStack(part)
+      else:
+        self.mapLattice[(iPart, 1)] = self.buildLexicalStack(part)
+      sites.append((iPart, 1))
 
+
+    psuedoRule = self.ruletable.buildPsuedoRule(None, sites)
+    simplePruner = SimpleCubePruner(self.model, [psuedoRule], sites, self.mapLattice)
+    simpleHyps = simplePruner.prune()
+    hyps = self.convertLatticeStackToHyps(simpleHyps)
+    return hyps
 
 
   def parse(self):
@@ -380,6 +404,8 @@ class Reconstructor:
     tokens: [token id, ... ]
     context: tag
     """
+    if self.depraved:
+      return self.depravedParsing()
     for width in range(1, len(self.source) + 1):
       anyRulesFound = False
       if self.smode:
@@ -404,10 +430,10 @@ class Reconstructor:
       # If no rules found in this width layer, inject glue rules.
       if width > 1 and not anyRulesFound:
         self.putGlueRulesIntoWidthLayer(width)
-    if (0, len(self.tokens)) not in self.mapLattice:
+    if (0, len(self.source)) not in self.mapLattice:
       return []
     self.model.smode = self.smode
-    hyps = self.convertLatticeStackToHyps(self.node, self.mapLattice[(0, len(self.tokens))])
+    hyps = self.convertLatticeStackToHyps(self.mapLattice[(0, len(self.source))])
     return hyps
 
 def test():
