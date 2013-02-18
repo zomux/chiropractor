@@ -681,8 +681,8 @@ class ChiropracticDecoder:
             # We should not allow this rule to be kicked off, so use reconstruction or depraved glue rule.
             depravedReconstruction = len(source) > 12
             # Need reconstruction
-            reconstructor = Reconstructor(self.ruletable, self.model, sense, hypStacks,
-                                          source, areaTags, dependentAreas, depravedReconstruction)
+            reconstructor = Reconstructor(self.ruletable, self.model, sense, area, sourceString, subTreeDistance,
+                                          hypStacks, source, areaTags, dependentAreas, depravedReconstruction)
             hyps = reconstructor.parse()
           else:
             # Got some rules, then using normal cube pruning to get hypothesis
@@ -691,5 +691,5 @@ class ChiropracticDecoder:
             hyps = pruner.prune()
           finalHyps.extend(hyps)
         if finalHyps:
-          hypStacks[area] = finalHyps[setting.size_beam]
+          hypStacks[area] = finalHyps[:setting.size_beam]
           areaTags[area] = self.taggingFunction(sense, phraseGroup)

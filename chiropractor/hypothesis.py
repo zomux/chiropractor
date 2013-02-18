@@ -71,10 +71,10 @@ class Hypothesis:
     self.model = model
     self.area = area
     self.sourceString = sourceString
+    self.branches, self.matchedBranches = subTreeDistance
     if not rule:
       # Customize mode.
       return
-    self.branches, self.matchedBranches = subTreeDistance
     self.target, self.sites, costs = rule
     # add fake lm cost
     self.costs = costs[:]

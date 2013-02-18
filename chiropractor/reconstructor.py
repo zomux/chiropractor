@@ -45,17 +45,23 @@ class Reconstructor:
   mapSpanTag = None
   smode = None
   dependentAreas = None
+  originalSites = None
   depraved = None
 
+  area = None
+  sourceString = None
+  subTreeDistance = None
 
-  def __init__(self, ruletable, model, sense, hypStacks, source, areaTags, dependentAreas, depraved=False):
+
+  def __init__(self, ruletable, model, sense, area, sourceString, subTreeDistance, hypStacks, source, areaTags, dependentAreas, depraved=False):
     """
     Init.
     """
     self.depraved = depraved
     self.source = source
     self.areaTags = areaTags
-    self.dependentAreas = dependentAreas
+    # self.dependentAreas = dependentAreas
+    self.originalSites = [idx for idx in range(len(source)) if isinstance(source[idx], tuple)]
     self.hypStacks = hypStacks
     self.ruletable = ruletable
     self.model = model
@@ -67,6 +73,9 @@ class Reconstructor:
     self.mapLattice = {}
     self.mapSpanTag = {}
     self.sense = sense
+    self.area = area
+    self.sourceString = sourceString
+    self.subTreeDistance = subTreeDistance
     self.tag = None
 
   def appendScoreToRules(self, rules):
@@ -177,7 +186,7 @@ class Reconstructor:
     else:
       begin, width = span
       tokens = self.source[begin:begin+width]
-      tokens = [t for t in tokens if t > 0]
+      tokens = [t for t in tokens if isinstance(t, int)]
       tag = self.sense.getTokensTag(tokens)
       self.mapSpanTag[span] = tag
       return tag
@@ -216,7 +225,7 @@ class Reconstructor:
         ntSpanList.append(span)
       else:
         # Original site could not be terminal
-        if begin in self.dependentAreas:
+        if begin in self.originalSites:
           return None, None
         word = self.getSpanWord(span)
         patterns.append(word)
@@ -325,7 +334,7 @@ class Reconstructor:
     Because no rules found in given width layer, put glue rules into it,
     and make CYK continue to run.
     """
-    for begin in range(0, len(self.tokens) - width + 1):
+    for begin in range(0, len(self.source) - width + 1):
       for lenLeftPart in range(1, width):
         stack = self.buildStackByGlueRule((begin, lenLeftPart), (begin + lenLeftPart, width - lenLeftPart))
         if stack:
@@ -340,7 +349,7 @@ class Reconstructor:
     stack = []
     nHyp = 0
     for hyp in hyps:
-      item = (hyp.translation, [], hyp.costs, hyp.score, None)
+      item = (hyp.translation, [], hyp.costs, hyp.score, {})
       stack.append(item)
       nHyp += 1
     return stack
@@ -353,8 +362,7 @@ class Reconstructor:
     for item in stack:
       translation, _, costs, score, supportDict = item
       # TODO: save area sourceString, subTreeDistance
-      area, sourceString = None, None
-      hyp = Hypothesis(self.model, area, sourceString, None, None, (0, 0))
+      hyp = Hypothesis(self.model, self.area, self.sourceString, None, None, self.subTreeDistance)
       hyp.sites = supportDict.keys()
       hyp.translation = translation
       hyp.translationTokens = translation.split(" ")

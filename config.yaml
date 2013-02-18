@@ -32,9 +32,11 @@ max_gram : 5
 
 x_as_tag : no
 
-max_merge_levels : 4
+max_merge_nodes : 3
 max_tokens : 6
 min_deep_extract_terminals : 3
+max_transaction_rate : 3
+
 
 ############ Probability Estimate ############
 
