@@ -67,6 +67,12 @@ size_beam : 2000
 # max non-terminals in tree reconstruction
 reconstruction_max_nt : 2
 
+################ Chiropractic ###########
+enable_chiropractic : yes
+head_phrases_limit : 10
+hypothesis_cluster_limit : 6
+
+
 # weight settings
 weights :
 ########################################

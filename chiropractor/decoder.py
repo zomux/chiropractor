@@ -282,7 +282,7 @@ class ChiropracticDecoder:
     @return:
     """
 
-  def buildIntrinsicRuleCoverageMap(self, sense, phraseCoverages):
+  def buildIntrinsicCoverageSourceMap(self, sense, phraseCoverages):
     """
     Build a map saves coverage for each rule.
 
@@ -290,22 +290,22 @@ class ChiropracticDecoder:
     @type sense: SenseTree
     @return:
     """
-    intrinsicRuleCoverages = {}
+    intrinsicCoverageSourceMap = {}
     for node in sense.tree.nodes:
       if node not in phraseCoverages:
         continue
-      sourceStringList = []
+      area = phraseCoverages[node]
+      # Build source
+      source = []
       for token in sense.tree.nodes[node]:
         if token > 0:
           # Terminal token
-          sourceStringList.append(sense.tokens[token - 1][1])
+          source.append(token)
         else:
           # Non-terminal token
-          headToken = sense.mapNodeToMainToken[-token]
-          sourceStringList.append("[%s]" % sense.tokens[headToken - 1][0])
-      sourceString = " ".join(sourceStringList)
-      intrinsicRuleCoverages[sourceString] = phraseCoverages[node]
-    return intrinsicRuleCoverages
+          source.append(phraseCoverages[-token])
+      intrinsicCoverageSourceMap[area] = source
+    return intrinsicCoverageSourceMap
 
   def chiropracticTranslation(self, sense):
     """
@@ -318,7 +318,7 @@ class ChiropracticDecoder:
     phraseDerivations = self.buildPhraseDerivations(phraseBorders, phraseDependencies)
     phraseCoverages = self.buildPhraseCoverages(sense)
     phraseClosedTokens = self.buildPhraseClosedTokens(sense, phraseBorders)
-    intrinsicRuleCoverages = self.buildIntrinsicRuleCoverageMap(sense, phraseCoverages)
+    intrinsicCoverageSourceMap = self.buildIntrinsicCoverageSourceMap(sense, phraseCoverages)
     intrinsicCoverageMap = self.buildIntrinsicCoverageMap(sense, phraseCoverages)
     # phraseHeadWords = sense.mapNodeToMainToken
     # For each area from short to long do forest decoding
@@ -336,7 +336,9 @@ class ChiropracticDecoder:
     for area in areas:
       self.disableInpossibleCells(hypStacks, area, maxTokenId)
       self.buildHypothesisesForArea(sense, hypStacks, area, areaTags, phraseBorders, phraseDerivations,
-                                    intrinsicCoverageMap, phraseClosedTokens, intrinsicRuleCoverages)
+                                    intrinsicCoverageMap, phraseClosedTokens, intrinsicCoverageSourceMap)
+    assert fullArea in hypStacks
+    print hypStacks[fullArea][0].translation
     return hypStacks[fullArea][:setting.nbest]
 
   def disableInpossibleCells(self, hypStacks, area, maxTokenId):
@@ -486,7 +488,7 @@ class ChiropracticDecoder:
 
     return combinations
 
-  def generateSourcesWithPhrase(self, phraseGroup, phraseClosedTokens, phraseBorders):
+  def generateSources(self, phraseGroup, phraseClosedTokens, phraseBorders):
     """
 
     @param sense:
@@ -510,12 +512,12 @@ class ChiropracticDecoder:
     rangePhrasePositions = range(len(phraseGroup))
     for bitPattern in bitPatterns:
       rawSource = []
-      phrases = []
+      # phrases = []
       for iPhrase in rangePhrasePositions:
         if (bitPattern >> iPhrase) % 2:
           # In this bit, the pattern holds 1, means terminal phrase
           rawSource.extend(phraseClosedTokens[phraseGroup[iPhrase]])
-          phrases.append(phraseGroup[iPhrase])
+          # phrases.append(phraseGroup[iPhrase])
         else:
           # In this bit, the pattern holds 0, means one of non-terminal
           rawSource.append(-phraseGroup[iPhrase])
@@ -537,7 +539,7 @@ class ChiropracticDecoder:
           source.append(rawSource[pos])
       if currentNT:
         source.append(currentNT)
-      sourcesWithPhrase.append((source, phrases))
+      sourcesWithPhrase.append(source)
 
     return sourcesWithPhrase
 
@@ -627,7 +629,7 @@ class ChiropracticDecoder:
     return sense.tokens[mainToken - 1][0]
 
   def buildHypothesisesForArea(self, sense, hypStacks, area, areaTags, phraseBorders, phraseDerivations,
-                               intrinsicCoverageMap, phraseClosedTokens, intrinsicRuleCoverages):
+                               intrinsicCoverageMap, phraseClosedTokens, intrinsicCoverageSourceMap):
     """
     Build Hypothesis stacks in given area.
 
@@ -648,11 +650,18 @@ class ChiropracticDecoder:
       for beginPosition in range(0, len(basePhrases) - phraseCount + 1):
         phraseGroup = basePhrases[beginPosition : beginPosition + phraseCount]
         area = (phraseBorders[phraseGroup[0]][0], phraseBorders[phraseGroup[-1]][1])
-        sourcesWithPhrase = self.generateSourcesWithPhrase(phraseGroup, phraseClosedTokens, phraseBorders)
+        generatedSources = self.generateSources(phraseGroup, phraseClosedTokens, phraseBorders)
         finalHyps = []
+        intrinsicSource = None
+        intrinsicSourceString = None
+        triedIntrinsicSource = False
+        if area in intrinsicCoverageSourceMap:
+          intrinsicSource = intrinsicCoverageSourceMap[area]
+          intrinsicSourceString = self.buildSourceString(sense, areaTags, intrinsicSource)
+          generatedSources.append(intrinsicSource)
         # Fetch rules and decode
         # For all sources try exactly matching
-        for source, phrases in sourcesWithPhrase:
+        for source in generatedSources:
           dependentAreas = [p for p in source if isinstance(p, tuple)]
           # Check dependent hypothesises
           missingSupport = False
@@ -666,13 +675,17 @@ class ChiropracticDecoder:
           sourceString = self.buildSourceString(sense, areaTags, source)
           if not sourceString:
             continue
+          if sourceString == intrinsicSourceString:
+            if triedIntrinsicSource:
+              continue
+            else:
+              triedIntrinsicSource = True
           # Fetch exactly matched rule
           exactlyMatchedRules = self.rulefetcher.findRulesBySourceString(sourceString, dependentAreas)
           hyps = None
           # If this source is an intrinsic source
           # then try to reconstruct or build depraved rules
-          if not exactlyMatchedRules and \
-              (sourceString not in intrinsicRuleCoverages or intrinsicRuleCoverages[sourceString] != area):
+          if not exactlyMatchedRules and  sourceString != intrinsicSourceString:
             continue
           subTreeDistance = self.getSubTreeDistance(intrinsicCoverageMap, area, dependentAreas)
           if not exactlyMatchedRules:
@@ -690,6 +703,8 @@ class ChiropracticDecoder:
                                 dependentAreas, hypStacks)
             hyps = pruner.prune()
           finalHyps.extend(hyps)
+        if not finalHyps and area in intrinsicCoverageSourceMap:
+          import pdb; pdb.set_trace()
         if finalHyps:
           hypStacks[area] = finalHyps[:setting.size_beam]
           areaTags[area] = self.taggingFunction(sense, phraseGroup)

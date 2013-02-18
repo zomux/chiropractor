@@ -27,7 +27,7 @@ rule_table_path : testdata/ruletables
 
 # language model setting
 
-file_lm : testdata/small.ja.lm
+file_lm : testdata/small.ja.lm.binary
 max_gram : 5
 
 x_as_tag : no

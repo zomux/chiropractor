@@ -24,7 +24,7 @@ from abraham.logger import log_error,log
 from gentile.model import GentileModel
 from gentile.ruletable import GentileRuleTable
 from gentile.model import GentileModel
-from gentile.simplepruner import SimpleCubePruner
+from chiropractor.simplepruner import SimpleCubePruner
 from chiropractor.hypothesis import Hypothesis
 from gentile.ruletable import PSEUDO_COSTS
 
@@ -60,7 +60,7 @@ class Reconstructor:
     self.depraved = depraved
     self.source = source
     self.areaTags = areaTags
-    # self.dependentAreas = dependentAreas
+    self.dependentAreas = dependentAreas
     self.originalSites = [idx for idx in range(len(source)) if isinstance(source[idx], tuple)]
     self.hypStacks = hypStacks
     self.ruletable = ruletable
@@ -85,6 +85,8 @@ class Reconstructor:
     newRules = []
     for rule in rules:
       translation, sites, costs = rule
+      # Set tree distance cost to 1
+      costs[0] = 1.0
       # Calculate lm score.
       words = [w for w in translation.split(" ") if not w.startswith("<<")]
       lmCost = self.model.getSentenseCost(words)
@@ -113,7 +115,7 @@ class Reconstructor:
     stack = self.appendScoreToRules(rulesFound)
     # Append empty site-to-nhyp dict.
     for nStack, rule in enumerate(stack):
-      hyp = tuple(list(rule)+[{}])
+      hyp = tuple(list(rule)+[(0, 0)])
       stack[nStack] = hyp
     stack = self.sortStack(stack)
     # Dirty way to allow DT words be translated to nothing.
@@ -349,7 +351,7 @@ class Reconstructor:
     stack = []
     nHyp = 0
     for hyp in hyps:
-      item = (hyp.translation, [], hyp.costs, hyp.score, {})
+      item = (hyp.translation, [], hyp.costs, hyp.score, (hyp.branches, hyp.matchedBranches))
       stack.append(item)
       nHyp += 1
     return stack
@@ -360,15 +362,16 @@ class Reconstructor:
     """
     hyps = []
     for item in stack:
-      translation, _, costs, score, supportDict = item
+      translation, _, costs, score, treeDistance = item
       # TODO: save area sourceString, subTreeDistance
-      hyp = Hypothesis(self.model, self.area, self.sourceString, None, None, self.subTreeDistance)
-      hyp.sites = supportDict.keys()
+      finalTreeDistance = (treeDistance[0] + self.subTreeDistance[0], treeDistance[1] + self.subTreeDistance[1])
+      hyp = Hypothesis(self.model, self.area, self.sourceString, None, None, finalTreeDistance)
+      # hyp.sites = supportDict.keys()
       hyp.translation = translation
       hyp.translationTokens = translation.split(" ")
       hyp.costs = costs[:]
       # Build target and hypStack.
-      target = translation
+      # target = translation
       # stackHypsSelected = {}
       # for linkedNode in supportDict:
       #   linkedHyp = self.hypStacks[linkedNode][supportDict[linkedNode]]
